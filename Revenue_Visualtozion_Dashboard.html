@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Walmart Sales Dashboard</title>
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- Papa Parse -->
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
+    <link rel="stylesheet" href="index.css" />
+  </head>
+
+  <body>
+    <header class="header">
+      <h1>Walmart Sales Dashboard</h1>
+      <p>Interactive revenue and sales analysis using Chart.js</p>
+    </header>
+
+    <main class="dashboard">
+      <section class="filters">
+        <div class="filter-group">
+          <label for="storeFilter">Store</label>
+          <select id="storeFilter">
+            <option value="all">All Stores</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
+          <label for="yearFilter">Year</label>
+          <select id="yearFilter">
+            <option value="all">All Years</option>
+          </select>
+        </div>
+
+        <button id="resetBtn">Reset Filters</button>
+      </section>
+
+      <section class="cards">
+        <div class="card">
+          <div class="card-title">Total Sales</div>
+          <div class="card-value" id="totalSales">$0</div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Average Weekly Sales</div>
+          <div class="card-value" id="avgSales">$0</div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Best Store</div>
+          <div class="card-value" id="bestStore">-</div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Records</div>
+          <div class="card-value" id="recordCount">0</div>
+        </div>
+      </section>
+
+      <section class="charts">
+        <div class="chart-card full">
+          <h2>Weekly Sales Trend</h2>
+          <div class="canvas-container">
+            <canvas id="salesTrendChart"></canvas>
+          </div>
+        </div>
+
+        <div class="chart-card">
+          <h2>Sales by Store</h2>
+          <div class="canvas-container">
+            <canvas id="storeSalesChart"></canvas>
+          </div>
+        </div>
+
+        <div class="chart-card">
+          <h2>Holiday vs Non-Holiday Sales</h2>
+          <div class="canvas-container">
+            <canvas id="holidayChart"></canvas>
+          </div>
+        </div>
+
+        <!-- <div class="chart-card">
+          <h2>Sales vs Temperature</h2>
+          <div class="canvas-container">
+            <canvas id="temperatureChart"></canvas>
+          </div>
+        </div> -->
+
+        <!-- <div class="chart-card">
+          <h2>Sales vs Fuel Price</h2>
+          <div class="canvas-container">
+            <canvas id="fuelChart"></canvas>
+          </div>
+        </div> -->
+      </section>
+    </main>
+
+    <script>
+      let allData = [];
+
+      let salesTrendChart;
+      let storeSalesChart;
+      let holidayChart;
+      let temperatureChart;
+      let fuelChart;
+
+      /*
+       * Load the CSV.
+       * Walmart_Sales.csv must be in the SAME folder as this HTML file.
+       */
+      Papa.parse("Walmart_Sales.csv", {
+        download: true,
+        header: true,
+        skipEmptyLines: true,
+
+        complete: function (results) {
+          allData = results.data.filter(
+            (row) => row.Store && row.Date && row.Weekly_Sales,
+          );
+
+          prepareFilters();
+          updateDashboard();
+        },
+
+        error: function (error) {
+          console.error("CSV loading error:", error);
+          alert(
+            "Could not load Walmart_Sales.csv. " +
+              "Make sure the CSV is in the same folder and open this HTML using Live Server.",
+          );
+        },
+      });
+
+      function prepareFilters() {
+        const stores = [...new Set(allData.map((row) => row.Store))].sort(
+          (a, b) => Number(a) - Number(b),
+        );
+
+        const years = [
+          ...new Set(allData.map((row) => getYear(row.Date))),
+        ].sort();
+
+        const storeFilter = document.getElementById("storeFilter");
+        const yearFilter = document.getElementById("yearFilter");
+
+        stores.forEach((store) => {
+          const option = document.createElement("option");
+          option.value = store;
+          option.textContent = "Store " + store;
+          storeFilter.appendChild(option);
+        });
+
+        years.forEach((year) => {
+          const option = document.createElement("option");
+          option.value = year;
+          option.textContent = year;
+          yearFilter.appendChild(option);
+        });
+      }
+
+      function getYear(dateString) {
+        // Your CSV uses DD-MM-YYYY
+        const parts = dateString.split("-");
+        return parts.length === 3 ? parts[2] : "";
+      }
+
+      function parseDate(dateString) {
+        const parts = dateString.split("-");
+
+        if (parts.length !== 3) {
+          return new Date(dateString);
+        }
+
+        const day = Number(parts[0]);
+        const month = Number(parts[1]) - 1;
+        const year = Number(parts[2]);
+
+        return new Date(year, month, day);
+      }
+
+      function formatCurrency(value) {
+        return new Intl.NumberFormat("en-US", {
+          style: "currency",
+          currency: "USD",
+          maximumFractionDigits: 0,
+        }).format(value);
+      }
+
+      function getFilteredData() {
+        const selectedStore = document.getElementById("storeFilter").value;
+
+        const selectedYear = document.getElementById("yearFilter").value;
+
+        return allData.filter((row) => {
+          const storeMatch =
+            selectedStore === "all" || row.Store === selectedStore;
+
+          const yearMatch =
+            selectedYear === "all" || getYear(row.Date) === selectedYear;
+
+          return storeMatch && yearMatch;
+        });
+      }
+
+      function updateDashboard() {
+        const data = getFilteredData();
+
+        updateCards(data);
+        updateSalesTrend(data);
+        updateStoreSales(data);
+        updateHolidaySales(data);
+        updateTemperature(data);
+        updateFuelPrice(data);
+      }
+
+      function updateCards(data) {
+        const totalSales = data.reduce(
+          (sum, row) => sum + Number(row.Weekly_Sales),
+          0,
+        );
+
+        const averageSales = data.length > 0 ? totalSales / data.length : 0;
+
+        const storeTotals = {};
+
+        data.forEach((row) => {
+          const store = row.Store;
+
+          if (!storeTotals[store]) {
+            storeTotals[store] = 0;
+          }
+
+          storeTotals[store] += Number(row.Weekly_Sales);
+        });
+
+        let bestStore = "-";
+
+        if (Object.keys(storeTotals).length > 0) {
+          bestStore = Object.entries(storeTotals).sort(
+            (a, b) => b[1] - a[1],
+          )[0][0];
+
+          bestStore = "Store " + bestStore;
+        }
+
+        document.getElementById("totalSales").textContent =
+          formatCurrency(totalSales);
+
+        document.getElementById("avgSales").textContent =
+          formatCurrency(averageSales);
+
+        document.getElementById("bestStore").textContent = bestStore;
+
+        document.getElementById("recordCount").textContent =
+          data.length.toLocaleString();
+      }
+
+      function destroyChart(chart) {
+        if (chart) {
+          chart.destroy();
+        }
+      }
+
+      function updateSalesTrend(data) {
+        destroyChart(salesTrendChart);
+
+        const sortedData = [...data].sort(
+          (a, b) => parseDate(a.Date) - parseDate(b.Date),
+        );
+
+        const labels = sortedData.map((row) => row.Date);
+
+        const sales = sortedData.map((row) => Number(row.Weekly_Sales));
+
+        salesTrendChart = new Chart(
+          document.getElementById("salesTrendChart"),
+          {
+            type: "line",
+
+            data: {
+              labels: labels,
+
+              datasets: [
+                {
+                  label: "Weekly Sales",
+                  data: sales,
+                  borderWidth: 2,
+                  pointRadius: 0,
+                  tension: 0.25,
+                  fill: false,
+                },
+              ],
+            },
+
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                title: {
+                  display: true,
+                  text: "Weekly Sales Trend",
+                },
+              },
+
+              interaction: {
+                mode: "index",
+                intersect: false,
+              },
+
+              scales: {
+                y: {
+                  beginAtZero: false,
+
+                  ticks: {
+                    callback: (value) => "$" + Number(value).toLocaleString(),
+                  },
+                },
+
+                x: {
+                  ticks: {
+                    maxTicksLimit: 15,
+                  },
+                },
+              },
+            },
+          },
+        );
+      }
+
+      function updateStoreSales(data) {
+        destroyChart(storeSalesChart);
+
+        const totals = {};
+
+        data.forEach((row) => {
+          const store = row.Store;
+
+          if (!totals[store]) {
+            totals[store] = 0;
+          }
+
+          totals[store] += Number(row.Weekly_Sales);
+        });
+
+        const sorted = Object.entries(totals)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 10);
+
+        storeSalesChart = new Chart(
+          document.getElementById("storeSalesChart"),
+          {
+            type: "bar",
+
+            data: {
+              labels: sorted.map((item) => "Store " + item[0]),
+
+              datasets: [
+                {
+                  label: "Total Sales",
+                  data: sorted.map((item) => item[1]),
+                  borderWidth: 1,
+                },
+              ],
+            },
+
+            options: {
+              indexAxis: "y",
+              responsive: true,
+              maintainAspectRatio: false,
+
+              scales: {
+                x: {
+                  ticks: {
+                    callback: (value) => "$" + Number(value).toLocaleString(),
+                  },
+                },
+              },
+            },
+          },
+        );
+      }
+
+      function updateHolidaySales(data) {
+        destroyChart(holidayChart);
+
+        let holidaySales = 0;
+        let nonHolidaySales = 0;
+
+        data.forEach((row) => {
+          if (Number(row.Holiday_Flag) === 1) {
+            holidaySales += Number(row.Weekly_Sales);
+          } else {
+            nonHolidaySales += Number(row.Weekly_Sales);
+          }
+        });
+
+        holidayChart = new Chart(document.getElementById("holidayChart"), {
+          type: "pie",
+
+          data: {
+            labels: ["Holiday", "Non-Holiday"],
+
+            datasets: [
+              {
+                data: [holidaySales, nonHolidaySales],
+                borderWidth: 1,
+              },
+            ],
+          },
+
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+
+            plugins: {
+              legend: {
+                position: "bottom",
+              },
+
+              tooltip: {
+                callbacks: {
+                  label: function (context) {
+                    return context.label + ": " + formatCurrency(context.raw);
+                  },
+                },
+              },
+            },
+          },
+        });
+      }
+    </script>
+  </body>
+</html>
